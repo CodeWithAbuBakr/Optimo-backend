@@ -1,0 +1,55 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.production.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Build and cache
+dist/
+build/
+.cache/
+.tmp/
+
+# IDE / Editor folders
+.vscode/
+.idea/
+*.swp
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Redis dump files
+dump.rdb
+*.rdb
+
+# Local data files
+data/
+uploads/
+*.sqlite
+*.db
+
+# Vercel
+.vercel/
+
+# Docker
+docker-compose.override.yml
+docker-compose.dev.yml
+
+# Misc
+*.pid
