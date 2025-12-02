@@ -12,13 +12,8 @@ app.use(bodyParser.json());
 app.use(cors({
     credentials: true,
     origin: [
-        'http://localhost:5173',
-        'https://192.168.1.5:5173',
         'https://localhost:3000',
         'http://192.168.1.5:3000',
-        'http://localhost:3001',
-        'http://192.168.1.5:3001',
-        'https://tlbr-io-frontend.vercel.app'
     ]
 }));
 
@@ -61,7 +56,7 @@ app.post('/add-task', async (req, res) => {
             };
         }
 
-        // File Type (select, always Email)
+        // File Type (always Email)
         properties["File Type"] = {
             email: "example@domain.com"
         };
@@ -90,6 +85,7 @@ app.post('/add-task', async (req, res) => {
             };
         }
 
+        // Create Notion page
         const response = await notion.pages.create({
             parent: { database_id: dashboardId },
             properties
@@ -98,8 +94,12 @@ app.post('/add-task', async (req, res) => {
         res.status(200).json({ success: true, pageId: response.id });
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: error.message || 'Failed to create Notion page' });
+        console.error('Error creating Notion page:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to create Notion page',
+            stack: error.stack
+        });
     }
 });
 
