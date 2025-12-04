@@ -1,9 +1,11 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const { Client } = require('@notionhq/client');
+const multer = require("multer");
 const cors = require('cors');
 const dotenv = require('dotenv');
 dotenv.config();
+const upload = multer();
 
 const app = express();
 app.use(cors());
@@ -23,69 +25,64 @@ const HOST = 'localhost';
 const notion = new Client({ auth: process.env.NOTION_API_KEY });
 const dashboardId = process.env.NOTION_DASHBOARD_ID;
 
-app.post('/add-task', async (req, res) => {
+app.post("/add-task", upload.array("files"), async (req, res) => {
     try {
-        const {
-            fileName,
-            fileUrl,
-            date,
-            link,
-            linkedCase,
-            messageId
-        } = req.body;
+        const { fileName, date, link, linkedCase, messageId } = req.body;
 
-        const properties = {};
+        const uploadedFiles = [];
 
-        // File Name (title)
-        if (fileName) {
-            properties["File Name"] = {
+        // ---- 1. Upload each file to Notion ----
+        for (const file of req.files) {
+            // STEP 1: Create Notion file upload
+            const createUpload = await notion.request({
+                method: "POST",
+                path: "file_uploads",
+                body: {
+                    file_name: file.originalname,
+                }
+            });
+
+            const uploadId = createUpload.id;
+
+            // STEP 2: Send binary data
+            await notion.request({
+                method: "POST",
+                path: `file_uploads/${uploadId}/send`,
+                body: {
+                    file: file.buffer
+                }
+            });
+
+            // Add to property format
+            uploadedFiles.push({
+                type: "file_upload",
+                name: file.originalname,
+                file_upload: { id: uploadId }
+            });
+        }
+
+        // ---- 2. Build properties ----
+        const properties = {
+            "File Name": {
                 title: [{ text: { content: fileName } }]
-            };
-        }
-
-        // File (optional)
-        if (fileUrl && fileName) {
-            properties["File"] = {
-                files: [
-                    {
-                        name: fileName,
-                        type: "external",
-                        external: { url: fileUrl }
-                    }
-                ]
-            };
-        }
-
-        // File Type (always Email)
-        properties["File Type"] = {
-            email: "example@domain.com"
+            },
+            "File": {
+                files: uploadedFiles
+            },
+            "File Type": {
+                email: "example@domain.com"
+            }
         };
 
-        // Date
-        if (date) {
-            properties["Date"] = {
-                date: { start: date }
-            };
-        }
-
-        // Link (URL)
-        if (link) {
-            properties["Link"] = { url: link };
-        }
-
-        // Linked Case (URL)
-        if (linkedCase) {
-            properties["Linked Case"] = { url: linkedCase };
-        }
-
-        // Message ID
-        if (messageId) {
+        if (date) properties["Date"] = { date: { start: date } };
+        if (link) properties["Link"] = { url: link };
+        if (linkedCase) properties["Linked Case"] = { url: linkedCase };
+        if (messageId)
             properties["Message ID"] = {
                 rich_text: [{ text: { content: messageId } }]
             };
-        }
 
-        // Create Notion page
+        // ---- 3. Create the Notion page ----
         const response = await notion.pages.create({
             parent: { database_id: dashboardId },
             properties
@@ -94,12 +91,8 @@ app.post('/add-task', async (req, res) => {
         res.status(200).json({ success: true, pageId: response.id });
 
     } catch (error) {
-        console.error('Error creating Notion page:', error);
-        res.status(500).json({
-            success: false,
-            message: error.message || 'Failed to create Notion page',
-            stack: error.stack
-        });
+        console.error("Error:", error);
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
