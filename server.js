@@ -123,9 +123,18 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
         }
 
         const properties = {
-            "File Name": { title: [{ text: { content: fileName } }] },
+            " File Name": {
+                title: [
+                    {
+                        type: "text",
+                        text: {
+                            content: fileName
+                        }
+                    }
+                ]
+            },
             "File": { files: uploadedFiles },
-            "File Type": { select: { name: "Email" } },
+            " File Type": { select: { name: "Email" } },
             "Message ID": { rich_text: messageId ? [{ text: { content: messageId } }] : [] }
         };
 
@@ -188,7 +197,7 @@ app.get('/search-cases', async (req, res) => {
             },
             body: JSON.stringify({
                 filter: {
-                    property: "File Name",
+                    property: " File Name",
                     title: {
                         contains: q
                     }
