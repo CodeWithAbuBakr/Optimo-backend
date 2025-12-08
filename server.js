@@ -137,6 +137,7 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
             };
         }
 
+        // CREATE PAGE ONCE (keep same logic)
         const page = await notion.pages.create({
             parent: { database_id: dashboardId },
             properties
@@ -160,13 +161,9 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
             });
         }
 
-        const response = await notion.pages.create({
-            parent: { database_id: dashboardId },
-            properties
-        });
-
-        console.log("Created Notion page:", response.id);
-        res.status(200).json({ success: true, pageId: response.id });
+        // Use the same `page` (do not create again)
+        console.log("Created Notion page:", page.id);
+        res.status(200).json({ success: true, pageId: page.id });
     } catch (error) {
         console.error("Error creating Notion page:", error);
         if (error.body) console.error("Notion error body:", error.body);
