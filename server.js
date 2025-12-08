@@ -22,11 +22,11 @@ app.use(cors({
 }));
 
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true })); 
+app.use(bodyParser.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || 'localhost';
-const NOTION_VERSION = '2022-06-28'; 
+const NOTION_VERSION = '2022-06-28';
 
 // Validate env
 if (!process.env.NOTION_API_KEY) {
@@ -123,7 +123,7 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
         }
 
         const properties = {
-            " File Name": {
+            "File Name": {
                 title: [
                     {
                         type: "text",
@@ -134,7 +134,7 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
                 ]
             },
             "File": { files: uploadedFiles },
-            " File Type": { select: { name: "Email" } },
+            "File Type": { select: { name: "Email" } },
             "Message ID": { rich_text: messageId ? [{ text: { content: messageId } }] : [] }
         };
 
@@ -197,7 +197,7 @@ app.get('/search-cases', async (req, res) => {
             },
             body: JSON.stringify({
                 filter: {
-                    property: " File Name",
+                    property: "File Name",
                     title: {
                         contains: q
                     }
