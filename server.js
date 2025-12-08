@@ -56,6 +56,7 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
         const link = req.body.link || null;
         const messageId = req.body.messageId || req.body.message_id || null;
         const linkedCase = req.body.linkedCase || req.body.linkedCaseId || req.body.linkedcase || null;
+        const emailBody = req.body.emailBody || req.body.body || req.body.content || null;
 
         console.log("Received add-task:", {
             fileName,
@@ -134,6 +135,29 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
             properties["Linked Case"] = {
                 relation: [{ id: linkedCase }]
             };
+        }
+
+        const page = await notion.pages.create({
+            parent: { database_id: dashboardId },
+            properties
+        });
+
+        // Add email body as page content
+        if (emailBody) {
+            await notion.blocks.children.append({
+                block_id: page.id,
+                children: [
+                    {
+                        object: "block",
+                        type: "paragraph",
+                        paragraph: {
+                            rich_text: [
+                                { type: "text", text: { content: emailBody } }
+                            ]
+                        }
+                    }
+                ]
+            });
         }
 
         const response = await notion.pages.create({
