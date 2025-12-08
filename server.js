@@ -71,29 +71,6 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
             return res.status(400).json({ success: false, message: "fileName (email subject) is required" });
         }
 
-        // ✅ CHECK FOR DUPLICATE MESSAGE ID
-        if (messageId) {
-            const existing = await notion.databases.query({
-                database_id: dashboardId,
-                filter: {
-                    property: "Message ID",
-                    rich_text: {
-                        equals: messageId
-                    }
-                }
-            });
-
-            if (existing.results.length > 0) {
-                console.log("Duplicate message detected:", messageId);
-                return res.status(200).json({
-                    success: false,
-                    duplicate: true,
-                    message: "This message already exists in Notion.",
-                    existingPageId: existing.results[0].id
-                });
-            }
-        }
-
         const uploadedFiles = [];
 
         if (Array.isArray(req.files) && req.files.length) {
@@ -136,6 +113,7 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
                     throw new Error("File upload failed");
                 }
 
+                const uploadData = uploadResponse.data;
                 uploadedFiles.push({
                     name: file.originalname,
                     type: "file_upload",
@@ -159,11 +137,13 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
             };
         }
 
+        // CREATE PAGE ONCE (keep same logic)
         const page = await notion.pages.create({
             parent: { database_id: dashboardId },
             properties
         });
 
+        // Add email body as page content
         if (emailBody) {
             await notion.blocks.children.append({
                 block_id: page.id,
@@ -181,9 +161,9 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
             });
         }
 
+        // Use the same `page` (do not create again)
         console.log("Created Notion page:", page.id);
         res.status(200).json({ success: true, pageId: page.id });
-
     } catch (error) {
         console.error("Error creating Notion page:", error);
         if (error.body) console.error("Notion error body:", error.body);
@@ -193,7 +173,6 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
         });
     }
 });
-
 
 app.get('/search-cases', async (req, res) => {
     try {
