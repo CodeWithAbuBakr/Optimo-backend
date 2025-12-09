@@ -153,21 +153,62 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
         });
 
         // Add email body as page content
+        // if (emailBody) {
+        //     await notion.blocks.children.append({
+        //         block_id: page.id,
+        //         children: [
+        //             {
+        //                 object: "block",
+        //                 type: "paragraph",
+        //                 paragraph: {
+        //                     rich_text: [
+        //                         { type: "text", text: { content: emailBody } }
+        //                     ]
+        //                 }
+        //             }
+        //         ]
+        //     });
+        // }
         if (emailBody) {
-            await notion.blocks.children.append({
-                block_id: page.id,
-                children: [
-                    {
-                        object: "block",
-                        type: "paragraph",
-                        paragraph: {
-                            rich_text: [
-                                { type: "text", text: { content: emailBody } }
-                            ]
-                        }
+            const maxLength = 2000;
+            const chunks = [];
+            let start = 0;
+            while (start < emailBody.length) {
+                let end = start + maxLength;
+                // Try to avoid cutting in the middle of a word (optional but nicer)
+                if (end < emailBody.length) {
+                    const slice = emailBody.slice(start, end);
+                    const lastSpace = slice.lastIndexOf(' ');
+                    const lastNewline = slice.lastIndexOf('\n');
+                    const breakPoint = Math.max(lastSpace, lastNewline);
+                    if (breakPoint > maxLength / 2) { // Only adjust if not too close to start
+                        end = start + breakPoint + 1;
                     }
-                ]
-            });
+                }
+                chunks.push(emailBody.slice(start, end));
+                start = end;
+            }
+
+            // Now append chunks in batches (Notion allows up to 100 blocks per append request)
+            const batchSize = 100;
+            for (let i = 0; i < chunks.length; i += batchSize) {
+                const batch = chunks.slice(i, i + batchSize);
+                const children = batch.map(chunk => ({
+                    object: "block",
+                    type: "paragraph",
+                    paragraph: {
+                        rich_text: [{
+                            type: "text",
+                            text: { content: chunk }
+                        }]
+                    }
+                }));
+
+                await notion.blocks.children.append({
+                    block_id: page.id,
+                    children
+                });
+            }
         }
 
         // Use the same `page` (do not create again)
