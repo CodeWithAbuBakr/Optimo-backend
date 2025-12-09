@@ -14,13 +14,20 @@ const app = express();
 
 app.use(cors({
     credentials: true,
-    origin: [
-        'https://localhost:3000',
-        'http://localhost:3000',
-        'http://192.168.1.5:3000',
-        'https://codewithabubakr.github.io',
-        'https://codewithabubakr.github.io/Optimo-frontend/'
-    ]
+    origin: function (origin, callback) {
+        console.log('Incoming Origin header:', origin); // This will log to your Vercel server logs
+        const allowedOrigins = [
+            'https://localhost:3000',
+            'http://localhost:3000',
+            'http://192.168.1.5:3000',
+            'https://codewithabubakr.github.io'
+        ];
+        if (allowedOrigins.includes(origin) || !origin) { // Allow if matches or no origin (e.g., same-origin or tool tests)
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    }
 }));
 
 app.use(bodyParser.json());
