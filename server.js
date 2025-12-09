@@ -197,7 +197,7 @@ app.get('/search-cases', async (req, res) => {
             },
             body: JSON.stringify({
                 filter: {
-                    property: "File Name",
+                    property: "שם תיק",
                     title: {
                         contains: q
                     }
