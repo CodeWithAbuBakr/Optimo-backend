@@ -18,6 +18,7 @@ app.use(cors({
         'https://localhost:3000',
         'http://localhost:3000',
         'http://192.168.1.5:3000',
+        'https://codewithabubakr.github.io'
     ]
 }));
 
