@@ -11,6 +11,7 @@ const axios = require('axios');
 dotenv.config();
 const upload = multer();
 const app = express();
+app.disable('etag');
 
 app.use(cors({
     credentials: true,
