@@ -229,41 +229,53 @@ app.get('/search-cases', async (req, res) => {
         const q = (req.query.q || '').trim();
         if (!q || q.length < 2) return res.json({ results: [] });
 
-        const response = await fetch(`https://api.notion.com/v1/databases/${CASE_DB_ID}/query`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${process.env.NOTION_API_KEY}`,
-                'Notion-Version': NOTION_VERSION,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                filter: {
-                    property: "שם תיק",
-                    title: {
-                        contains: q
-                    }
+        let allResults = [];
+        let has_more = true;
+        let start_cursor = undefined;
+
+        while (has_more) {
+            const response = await fetch(`https://api.notion.com/v1/databases/${CASE_DB_ID}/query`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${process.env.NOTION_API_KEY}`,
+                    'Notion-Version': NOTION_VERSION,
+                    'Content-Type': 'application/json'
                 },
-                page_size: 10
-            })
-        });
+                body: JSON.stringify({
+                    filter: {
+                        property: "שם תיק",
+                        title: {
+                            contains: q
+                        }
+                    },
+                    page_size: 100,
+                    ...(start_cursor && { start_cursor })
+                })
+            });
 
-        const data = await response.json();
+            const data = await response.json();
 
-        if (!response.ok) {
-            console.error("Notion API error:", data);
-            throw new Error(data.message || 'Notion API error');
+            if (!response.ok) {
+                console.error("Notion API error:", data);
+                throw new Error(data.message || 'Notion API error');
+            }
+
+            const pageResults = data.results.map(page => {
+                // Note: Update 'File Name' to "שם תיק" if that's the correct property name
+                const title = page.properties['File Name']?.title?.map(t => t.plain_text).join('') || "(untitled)";
+                return {
+                    id: page.id,
+                    title,
+                    raw: page.properties
+                };
+            });
+
+            allResults = allResults.concat(pageResults);
+            has_more = data.has_more;
+            start_cursor = data.next_cursor;
         }
 
-        const results = data.results.map(page => {
-            const title = page.properties['File Name']?.title?.map(t => t.plain_text).join('') || "(untitled)";
-            return {
-                id: page.id,
-                title,
-                raw: page.properties
-            };
-        });
-
-        res.json({ results });
+        res.json({ results: allResults });
     } catch (err) {
         console.error("Full error:", err);
         res.status(500).json({
