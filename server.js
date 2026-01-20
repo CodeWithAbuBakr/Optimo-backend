@@ -113,9 +113,24 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
                     throw new Error("File upload failed");
                 }
 
+                let name = file.originalname;
+                if (name.length > 100) {
+                    const dotIndex = name.lastIndexOf('.');
+                    if (dotIndex !== -1 && dotIndex > 0) {  // Ensure there's an extension
+                        const base = name.slice(0, dotIndex);
+                        const ext = name.slice(dotIndex);
+                        const baseMaxLen = 100 - ext.length;
+                        if (base.length > baseMaxLen) {
+                            name = base.slice(0, baseMaxLen - 3) + '...' + ext; 
+                        }
+                    } else {
+                        name = name.slice(0, 97) + '...'; 
+                    }
+                }
+
                 const uploadData = uploadResponse.data;
                 uploadedFiles.push({
-                    name: file.originalname,
+                    name: name,
                     type: "file_upload",
                     file_upload: { id: uploadId }
                 });
@@ -152,23 +167,6 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
             properties
         });
 
-        // Add email body as page content
-        // if (emailBody) {
-        //     await notion.blocks.children.append({
-        //         block_id: page.id,
-        //         children: [
-        //             {
-        //                 object: "block",
-        //                 type: "paragraph",
-        //                 paragraph: {
-        //                     rich_text: [
-        //                         { type: "text", text: { content: emailBody } }
-        //                     ]
-        //                 }
-        //             }
-        //         ]
-        //     });
-        // }
         if (emailBody) {
             const maxLength = 2000;
             const chunks = [];
