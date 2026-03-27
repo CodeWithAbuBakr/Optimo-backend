@@ -7,6 +7,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const FormData = require('form-data');
 const axios = require('axios');
+const mime = require('mime-types');
 
 dotenv.config();
 const upload = multer();
@@ -72,81 +73,93 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
         }
 
         const uploadedFiles = [];
+        const skippedFiles = [];
 
         if (Array.isArray(req.files) && req.files.length) {
             for (const file of req.files) {
-                const createUpload = await notion.request({
-                    method: "POST",
-                    path: "file_uploads",
-                    body: {
-                        mode: "single_part",
-                        filename: file.originalname,
-                        content_type: file.mimetype || "application/octet-stream"
-                    }
-                });
-
-                const uploadId = createUpload.id;
-                const uploadUrl = createUpload.upload_url;
-                if (!uploadId || !uploadUrl) {
-                    console.error("Bad upload slot response:", createUpload);
-                    throw new Error("Failed to create Notion upload slot");
+                // Skip very large files (Notion single-part limit is ~20MB)
+                if (file.size > 20 * 1024 * 1024) {
+                    console.warn(`Skipping large file (>20MB): ${file.originalname}`);
+                    skippedFiles.push(file.originalname);
+                    continue;
                 }
 
-                const form = new FormData();
-                form.append('file', file.buffer, {
-                    filename: file.originalname,
-                    contentType: file.mimetype || "application/octet-stream"
-                });
+                // Improved MIME type detection
+                let contentType = (file.mimetype && file.mimetype !== 'application/octet-stream')
+                    ? file.mimetype
+                    : (mime.lookup(file.originalname) || 'application/octet-stream');
 
-                const uploadResponse = await axios.post(uploadUrl, form, {
-                    headers: {
-                        Authorization: `Bearer ${process.env.NOTION_API_KEY}`,
-                        "Notion-Version": NOTION_VERSION,
-                        ...form.getHeaders()
-                    },
-                    maxBodyLength: Infinity,
-                    maxContentLength: Infinity
-                });
-
-                if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
-                    console.error("Upload to Notion failed:", uploadResponse.status, uploadResponse.data);
-                    throw new Error("File upload failed");
+                if (contentType === 'application/octet-stream') {
+                    console.warn(`Skipping file with unknown MIME type: ${file.originalname}`);
+                    skippedFiles.push(file.originalname);
+                    continue;
                 }
 
-                let name = file.originalname;
-                if (name.length > 100) {
-                    const dotIndex = name.lastIndexOf('.');
-                    if (dotIndex !== -1 && dotIndex > 0) {  // Ensure there's an extension
-                        const base = name.slice(0, dotIndex);
-                        const ext = name.slice(dotIndex);
-                        const baseMaxLen = 100 - ext.length;
-                        if (base.length > baseMaxLen) {
-                            name = base.slice(0, baseMaxLen - 3) + '...' + ext; 
+                try {
+                    console.log(`Uploading: ${file.originalname} | Type: ${contentType} | Size: ${(file.size / 1024).toFixed(1)} KB`);
+
+                    const createUpload = await notion.request({
+                        method: "POST",
+                        path: "file_uploads",
+                        body: {
+                            mode: "single_part",
+                            filename: file.originalname,
+                            content_type: contentType
                         }
-                    } else {
-                        name = name.slice(0, 97) + '...'; 
-                    }
-                }
+                    });
 
-                const uploadData = uploadResponse.data;
-                uploadedFiles.push({
-                    name: name,
-                    type: "file_upload",
-                    file_upload: { id: uploadId }
-                });
+                    const { id: uploadId, upload_url: uploadUrl } = createUpload || {};
+
+                    if (!uploadId || !uploadUrl) {
+                        throw new Error("Invalid upload slot response from Notion");
+                    }
+
+                    const form = new FormData();
+                    form.append('file', file.buffer, {
+                        filename: file.originalname,
+                        contentType: contentType
+                    });
+
+                    const uploadResponse = await axios.post(uploadUrl, form, {
+                        headers: form.getHeaders(),   // Only FormData headers - Very Important
+                        maxBodyLength: Infinity,
+                        maxContentLength: Infinity
+                    });
+
+                    if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
+                        throw new Error(`Upload failed with status ${uploadResponse.status}`);
+                    }
+
+                    // Clean filename for Notion
+                    let displayName = file.originalname;
+                    if (displayName.length > 100) {
+                        const dotIndex = displayName.lastIndexOf('.');
+                        if (dotIndex > 0) {
+                            const base = displayName.slice(0, dotIndex);
+                            const ext = displayName.slice(dotIndex);
+                            displayName = base.slice(0, 96 - ext.length) + '...' + ext;
+                        } else {
+                            displayName = displayName.slice(0, 97) + '...';
+                        }
+                    }
+
+                    uploadedFiles.push({
+                        name: displayName,
+                        type: "file_upload",
+                        file_upload: { id: uploadId }
+                    });
+
+                } catch (uploadErr) {
+                    console.error(`Failed to upload ${file.originalname}:`, uploadErr.message || uploadErr);
+                    skippedFiles.push(file.originalname);
+                }
             }
         }
 
+        // ====================== CREATE THE PAGE ======================
         const properties = {
             "File Name": {
-                title: [
-                    {
-                        type: "text",
-                        text: {
-                            content: fileName
-                        }
-                    }
-                ]
+                title: [{ type: "text", text: { content: fileName } }]
             },
             "File": { files: uploadedFiles },
             "File Type": { select: { name: "Email" } },
@@ -156,30 +169,52 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
         if (date) properties["Date"] = { date: { start: date } };
         if (link) properties["Link"] = { url: link };
         if (linkedCase) {
-            properties["Linked Case"] = {
-                relation: [{ id: linkedCase }]
-            };
+            properties["Linked Case"] = { relation: [{ id: linkedCase }] };
         }
 
-        // CREATE PAGE ONCE (keep same logic)
         const page = await notion.pages.create({
             parent: { database_id: dashboardId },
             properties
         });
 
-        if (emailBody) {
+        // ====================== Add skipped files warning (if any) ======================
+        if (skippedFiles.length > 0) {
+            try {
+                await notion.blocks.children.append({
+                    block_id: page.id,
+                    children: [{
+                        object: "block",
+                        type: "paragraph",
+                        paragraph: {
+                            rich_text: [{
+                                type: "text",
+                                text: { 
+                                    content: `⚠️ Could not upload the following attachments:\n• ${skippedFiles.join('\n• ')}`
+                                }
+                            }]
+                        }
+                    }]
+                });
+            } catch (appendErr) {
+                console.error("Failed to append skipped files warning:", appendErr.message);
+                // Don't fail the whole request for this
+            }
+        }
+
+        // ====================== Append Email Body ======================
+        if (emailBody && emailBody.trim().length > 0) {
             const maxLength = 2000;
             const chunks = [];
             let start = 0;
+
             while (start < emailBody.length) {
-                let end = start + maxLength;
-                // Try to avoid cutting in the middle of a word (optional but nicer)
+                let end = Math.min(start + maxLength, emailBody.length);
                 if (end < emailBody.length) {
                     const slice = emailBody.slice(start, end);
                     const lastSpace = slice.lastIndexOf(' ');
                     const lastNewline = slice.lastIndexOf('\n');
                     const breakPoint = Math.max(lastSpace, lastNewline);
-                    if (breakPoint > maxLength / 2) { // Only adjust if not too close to start
+                    if (breakPoint > maxLength / 2) {
                         end = start + breakPoint + 1;
                     }
                 }
@@ -187,7 +222,6 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
                 start = end;
             }
 
-            // Now append chunks in batches (Notion allows up to 100 blocks per append request)
             const batchSize = 100;
             for (let i = 0; i < chunks.length; i += batchSize) {
                 const batch = chunks.slice(i, i + batchSize);
@@ -195,10 +229,7 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
                     object: "block",
                     type: "paragraph",
                     paragraph: {
-                        rich_text: [{
-                            type: "text",
-                            text: { content: chunk }
-                        }]
+                        rich_text: [{ type: "text", text: { content: chunk } }]
                     }
                 }));
 
@@ -209,15 +240,16 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
             }
         }
 
-        // Use the same `page` (do not create again)
-        console.log("Created Notion page:", page.id);
+        console.log("Successfully created Notion page:", page.id);
         res.status(200).json({ success: true, pageId: page.id });
+
     } catch (error) {
         console.error("Error creating Notion page:", error);
         if (error.body) console.error("Notion error body:", error.body);
+        
         res.status(500).json({
             success: false,
-            message: error.message || "Unknown error"
+            message: error.message || "Unknown error occurred while creating Notion page"
         });
     }
 });
