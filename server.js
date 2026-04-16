@@ -256,8 +256,11 @@ app.post("/add-task", upload.array("files"), async (req, res) => {
 
 app.get('/search-cases', async (req, res) => {
     try {
-        const q = (req.query.q || '').trim();
-        if (!q || q.length < 2) return res.json({ results: [] });
+        const q = (req.query.q || '').trim().toLowerCase();
+
+        if (!q || q.length < 2) {
+            return res.json({ results: [] });
+        }
 
         let allResults = [];
         let has_more = true;
@@ -272,10 +275,11 @@ app.get('/search-cases', async (req, res) => {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
+                    // Looser filter — we will refine on the server
                     filter: {
-                        property: "שם תיק",
+                        property: "שם תיק",   // Make sure this is the exact property name (Hebrew)
                         title: {
-                            contains: q
+                            contains: q   // Keep this for performance, but we'll filter more below
                         }
                     },
                     page_size: 100,
@@ -291,8 +295,12 @@ app.get('/search-cases', async (req, res) => {
             }
 
             const pageResults = data.results.map(page => {
-                // Note: Update 'File Name' to "שם תיק" if that's the correct property name
-                const title = page.properties['File Name']?.title?.map(t => t.plain_text).join('') || "(untitled)";
+                // Use the correct property name here too
+                const titleProp = page.properties['שם תיק'] || page.properties['File Name'];
+                const title = titleProp?.title
+                    ?.map(t => t.plain_text)
+                    ?.join('') || "(untitled)";
+
                 return {
                     id: page.id,
                     title,
@@ -305,7 +313,28 @@ app.get('/search-cases', async (req, res) => {
             start_cursor = data.next_cursor;
         }
 
-        res.json({ results: allResults });
+        // === SMART CLIENT-SIDE FILTERING ===
+        const filtered = allResults.filter(item => {
+            const titleLower = item.title.toLowerCase();
+            return titleLower.includes(q);
+        });
+
+        // Optional: sort by how close the match is (better UX)
+        // e.g. exact word match first, then substring
+        filtered.sort((a, b) => {
+            const aTitle = a.title.toLowerCase();
+            const bTitle = b.title.toLowerCase();
+
+            const aExact = aTitle.includes(' ' + q + ' ') || aTitle === q || aTitle.startsWith(q + ' ') || aTitle.endsWith(' ' + q);
+            const bExact = bTitle.includes(' ' + q + ' ') || bTitle === q || bTitle.startsWith(q + ' ') || bTitle.endsWith(' ' + q);
+
+            if (aExact && !bExact) return -1;
+            if (!aExact && bExact) return 1;
+            return 0;
+        });
+
+        res.json({ results: filtered });
+
     } catch (err) {
         console.error("Full error:", err);
         res.status(500).json({
